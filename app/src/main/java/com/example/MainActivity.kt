@@ -1,6 +1,5 @@
 package com.example
 
-import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
@@ -59,19 +57,27 @@ class MainActivity : ComponentActivity() {
 fun DijlahPlusApp(
     viewModel: DijlahViewModel = viewModel()
 ) {
-    val context = LocalContext.current
     val config by viewModel.config.collectAsStateWithLifecycle()
     val channels by viewModel.channels.collectAsStateWithLifecycle()
+    val liveCategories by viewModel.liveCategories.collectAsStateWithLifecycle()
     val matches by viewModel.matches.collectAsStateWithLifecycle()
     val movies by viewModel.movies.collectAsStateWithLifecycle()
+    val vodCategories by viewModel.vodCategories.collectAsStateWithLifecycle()
     val seriesList by viewModel.seriesList.collectAsStateWithLifecycle()
+    val seriesCategories by viewModel.seriesCategories.collectAsStateWithLifecycle()
     val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val savedPlaylists by viewModel.savedPlaylists.collectAsStateWithLifecycle()
     val savedPlaybackPositions by viewModel.savedPlaybackPositions.collectAsStateWithLifecycle()
+    val recentlyWatchedChannelIds by viewModel.recentlyWatchedChannelIds.collectAsStateWithLifecycle()
+    val recentlyWatchedSeriesIds by viewModel.recentlyWatchedSeriesIds.collectAsStateWithLifecycle()
     val currentSection by viewModel.currentSection.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val activePlayerMedia by viewModel.activePlayerMedia.collectAsStateWithLifecycle()
+    val showSplashScreen by viewModel.showSplashScreen.collectAsStateWithLifecycle()
+    val isAuthenticatedSession by viewModel.isAuthenticatedSession.collectAsStateWithLifecycle()
+    val loginErrorMessage by viewModel.loginErrorMessage.collectAsStateWithLifecycle()
+    val pendingPlaylistForNaming by viewModel.pendingPlaylistForNaming.collectAsStateWithLifecycle()
     val showStealthPinPrompt by viewModel.showStealthPinPrompt.collectAsStateWithLifecycle()
     val showAdminModal by viewModel.showAdminModal.collectAsStateWithLifecycle()
     val showServerStatusModal by viewModel.showServerStatusModal.collectAsStateWithLifecycle()
@@ -89,7 +95,7 @@ fun DijlahPlusApp(
     }
 
     // Handle system Back button inside sub-sections to return to Home Bento screen
-    BackHandler(enabled = currentSection != MainSection.HOME) {
+    BackHandler(enabled = isAuthenticatedSession && currentSection != MainSection.HOME) {
         viewModel.selectSection(MainSection.HOME)
     }
 
@@ -108,19 +114,21 @@ fun DijlahPlusApp(
         containerColor = DijlahBgDark,
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            DijlahTopBar(
-                config = config,
-                currentSection = currentSection,
-                searchQuery = searchQuery,
-                isSyncing = isSyncingPlaylist,
-                pingLatencyMs = pingLatencyMs,
-                onSearchQueryChanged = viewModel::onSearchQueryChanged,
-                onLogoTapped = viewModel::onLogoTapped,
-                onSelectSection = viewModel::selectSection,
-                onRefreshServer = viewModel::refreshActivePlaylist,
-                onOpenServerStatus = viewModel::openServerStatusModal,
-                onOpenTelegramPopup = viewModel::openTelegramPopup
-            )
+            if (!showSplashScreen && isAuthenticatedSession) {
+                DijlahTopBar(
+                    config = config,
+                    currentSection = currentSection,
+                    searchQuery = searchQuery,
+                    isSyncing = isSyncingPlaylist,
+                    pingLatencyMs = pingLatencyMs,
+                    onSearchQueryChanged = viewModel::onSearchQueryChanged,
+                    onLogoTapped = viewModel::onLogoTapped,
+                    onSelectSection = viewModel::selectSection,
+                    onRefreshServer = viewModel::refreshActivePlaylist,
+                    onOpenServerStatus = viewModel::openServerStatusModal,
+                    onOpenTelegramPopup = viewModel::openTelegramPopup
+                )
+            }
         },
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState) { data ->
@@ -142,105 +150,155 @@ fun DijlahPlusApp(
                 .padding(innerPadding)
                 .background(DijlahBgDark)
         ) {
-            when (currentSection) {
-                MainSection.HOME -> HomeBentoDashboardScreen(
-                    config = config,
-                    activePlaylist = activePlaylist,
-                    channelsCount = channels.size,
-                    moviesCount = movies.size,
-                    seriesCount = seriesList.size,
-                    favoritesCount = favoriteIds.size,
-                    isSyncing = isSyncingPlaylist,
-                    onSelectSection = viewModel::selectSection,
-                    onRefreshPlaylist = viewModel::refreshActivePlaylist,
-                    onOpenServerStatus = viewModel::openServerStatusModal,
-                    onExitApp = {
-                        (context as? Activity)?.finish()
+            when {
+                // Step 1: Startup Splash Screen (1.5s)
+                showSplashScreen -> {
+                    DijlaSplashScreen(
+                        appName = config.appName
+                    )
+                }
+
+                // Step 2: Login Screen (VIP Username/Password OR Free Activation Code D1)
+                !isAuthenticatedSession -> {
+                    DijlaLoginScreen(
+                        macAddress = config.macAddress,
+                        telegramHandle = config.telegramHandle,
+                        isSyncing = isSyncingPlaylist,
+                        errorMessage = loginErrorMessage,
+                        onSubmitVipCredentials = viewModel::submitLoginVipCredentials,
+                        onSubmitActivationCode = viewModel::submitLoginActivationCode,
+                        onLogoTapped = viewModel::onLogoTapped,
+                        onMacAddressTapped = viewModel::onMacAddressTapped,
+                        onSecretCodeEntered = viewModel::openStealthPinPromptDirectly
+                    )
+                }
+
+                // Step 3: Main Authenticated Application
+                else -> {
+                    when (currentSection) {
+                        MainSection.HOME -> HomeBentoDashboardScreen(
+                            config = config,
+                            activePlaylist = activePlaylist,
+                            isSyncing = isSyncingPlaylist,
+                            onSelectSection = viewModel::selectSection,
+                            onRefreshPlaylist = viewModel::refreshActivePlaylist,
+                            onOpenServerStatus = viewModel::openServerStatusModal,
+                            onLogoutAccount = viewModel::logoutToLoginScreen
+                        )
+
+                        MainSection.MATCHES -> MatchesScheduleScreen(
+                            matches = matches,
+                            searchQuery = searchQuery,
+                            isSyncing = isSyncingPlaylist,
+                            onPlayMatch = viewModel::requestPlayMatch,
+                            onRefreshServer = viewModel::refreshActivePlaylist
+                        )
+
+                        MainSection.LIVE_TV -> LiveTvSectionScreen(
+                            channels = channels,
+                            serverLiveCategories = liveCategories,
+                            hiddenCategories = config.hiddenLiveCategories,
+                            recentlyWatchedIds = recentlyWatchedChannelIds,
+                            favoriteIds = favoriteIds,
+                            selectedCategory = selectedCategory,
+                            lockedCategories = config.lockedCategories,
+                            searchQuery = searchQuery,
+                            isSyncing = isSyncingPlaylist,
+                            onSelectCategory = viewModel::selectCategory,
+                            onPlayChannel = viewModel::requestPlayChannel,
+                            onPlayChannelByNumber = { num -> viewModel.playChannelByNumber(num) },
+                            onToggleFavorite = viewModel::toggleFavorite,
+                            onRefreshServer = viewModel::refreshActivePlaylist,
+                            onBackToHome = { viewModel.selectSection(MainSection.HOME) }
+                        )
+
+                        MainSection.MOVIES -> MoviesVodScreen(
+                            movies = movies,
+                            serverVodCategories = vodCategories,
+                            hiddenCategories = config.hiddenVodCategories,
+                            favoriteIds = favoriteIds,
+                            savedPlaybackPositions = savedPlaybackPositions,
+                            selectedCategory = selectedCategory,
+                            lockedCategories = config.lockedCategories,
+                            searchQuery = searchQuery,
+                            isSyncing = isSyncingPlaylist,
+                            onSelectCategory = viewModel::selectCategory,
+                            onPlayMovie = viewModel::requestPlayMovie,
+                            onToggleFavorite = viewModel::toggleFavorite,
+                            onBackToHome = { viewModel.selectSection(MainSection.HOME) }
+                        )
+
+                        MainSection.SERIES -> SeriesVodScreen(
+                            seriesList = seriesList,
+                            serverSeriesCategories = seriesCategories,
+                            hiddenCategories = config.hiddenSeriesCategories,
+                            recentlyWatchedSeriesIds = recentlyWatchedSeriesIds,
+                            favoriteIds = favoriteIds,
+                            selectedCategory = selectedCategory,
+                            lockedCategories = config.lockedCategories,
+                            searchQuery = searchQuery,
+                            isSyncing = isSyncingPlaylist,
+                            onSelectCategory = viewModel::selectCategory,
+                            onOpenSeries = viewModel::openSeriesDetail,
+                            onToggleFavorite = viewModel::toggleFavorite,
+                            onBackToHome = { viewModel.selectSection(MainSection.HOME) }
+                        )
+
+                        MainSection.FAVORITES -> FavoritesScreen(
+                            channels = channels,
+                            movies = movies,
+                            seriesList = seriesList,
+                            favoriteIds = favoriteIds,
+                            onPlayChannel = viewModel::requestPlayChannel,
+                            onPlayMovie = viewModel::requestPlayMovie,
+                            onOpenSeries = viewModel::openSeriesDetail,
+                            onToggleFavorite = viewModel::toggleFavorite
+                        )
+
+                        MainSection.PLAYLIST_MANAGER -> PlaylistManagerScreen(
+                            config = config,
+                            savedPlaylists = savedPlaylists,
+                            isSyncing = isSyncingPlaylist,
+                            onActivateByCode = viewModel::activatePlaylistByCode,
+                            onLoginXtream = viewModel::loginWithXtreamCredentials,
+                            onLoginM3u = viewModel::loginWithM3uUrl,
+                            onActivateSavedPlaylist = viewModel::activateSavedPlaylist,
+                            onDeleteSavedPlaylist = viewModel::deleteSavedPlaylist,
+                            onOpenLoginScreen = viewModel::logoutToLoginScreen
+                        )
+
+                        MainSection.SETTINGS -> SettingsScreen(
+                            config = config,
+                            liveCategories = liveCategories,
+                            vodCategories = vodCategories,
+                            seriesCategories = seriesCategories,
+                            onUpdateConfig = viewModel::updateAppConfig,
+                            onOpenPlaylistManager = { viewModel.selectSection(MainSection.PLAYLIST_MANAGER) },
+                            onOpenLoginScreen = viewModel::logoutToLoginScreen,
+                            onRefreshPlaylistsNow = viewModel::refreshActivePlaylist,
+                            onClearChannelsHistory = viewModel::clearChannelsHistory,
+                            onClearMoviesHistory = viewModel::clearMoviesHistory,
+                            onClearSeriesHistory = viewModel::clearSeriesHistory,
+                            onMacAddressTapped = viewModel::onMacAddressTapped,
+                            onPostToast = viewModel::postToast
+                        )
                     }
-                )
-
-                MainSection.MATCHES -> MatchesScheduleScreen(
-                    matches = matches,
-                    searchQuery = searchQuery,
-                    isSyncing = isSyncingPlaylist,
-                    onPlayMatch = viewModel::requestPlayMatch,
-                    onRefreshServer = viewModel::refreshActivePlaylist
-                )
-
-                MainSection.LIVE_TV -> LiveTvSectionScreen(
-                    channels = channels,
-                    favoriteIds = favoriteIds,
-                    selectedCategory = selectedCategory,
-                    lockedCategories = config.lockedCategories,
-                    searchQuery = searchQuery,
-                    isSyncing = isSyncingPlaylist,
-                    onSelectCategory = viewModel::selectCategory,
-                    onPlayChannel = viewModel::requestPlayChannel,
-                    onPlayChannelByNumber = { num -> viewModel.playChannelByNumber(num) },
-                    onToggleFavorite = viewModel::toggleFavorite,
-                    onRefreshServer = viewModel::refreshActivePlaylist
-                )
-
-                MainSection.MOVIES -> MoviesVodScreen(
-                    movies = movies,
-                    favoriteIds = favoriteIds,
-                    savedPlaybackPositions = savedPlaybackPositions,
-                    selectedCategory = selectedCategory,
-                    lockedCategories = config.lockedCategories,
-                    searchQuery = searchQuery,
-                    isSyncing = isSyncingPlaylist,
-                    onSelectCategory = viewModel::selectCategory,
-                    onPlayMovie = viewModel::requestPlayMovie,
-                    onToggleFavorite = viewModel::toggleFavorite
-                )
-
-                MainSection.SERIES -> SeriesVodScreen(
-                    seriesList = seriesList,
-                    favoriteIds = favoriteIds,
-                    selectedCategory = selectedCategory,
-                    lockedCategories = config.lockedCategories,
-                    searchQuery = searchQuery,
-                    isSyncing = isSyncingPlaylist,
-                    onSelectCategory = viewModel::selectCategory,
-                    onOpenSeries = viewModel::openSeriesDetail,
-                    onToggleFavorite = viewModel::toggleFavorite
-                )
-
-                MainSection.FAVORITES -> FavoritesScreen(
-                    channels = channels,
-                    movies = movies,
-                    seriesList = seriesList,
-                    favoriteIds = favoriteIds,
-                    onPlayChannel = viewModel::requestPlayChannel,
-                    onPlayMovie = viewModel::requestPlayMovie,
-                    onOpenSeries = viewModel::openSeriesDetail,
-                    onToggleFavorite = viewModel::toggleFavorite
-                )
-
-                MainSection.PLAYLIST_MANAGER -> PlaylistManagerScreen(
-                    config = config,
-                    savedPlaylists = savedPlaylists,
-                    isSyncing = isSyncingPlaylist,
-                    onActivateByCode = viewModel::activatePlaylistByCode,
-                    onLoginXtream = viewModel::loginWithXtreamCredentials,
-                    onLoginM3u = viewModel::loginWithM3uUrl,
-                    onActivateSavedPlaylist = viewModel::activateSavedPlaylist,
-                    onDeleteSavedPlaylist = viewModel::deleteSavedPlaylist
-                )
-
-                MainSection.SETTINGS -> SettingsScreen(
-                    config = config,
-                    onUpdateConfig = viewModel::updateAppConfig,
-                    onOpenPlaylistManager = { viewModel.selectSection(MainSection.PLAYLIST_MANAGER) },
-                    onOpenServerStatus = viewModel::openServerStatusModal,
-                    onMacAddressTapped = viewModel::onMacAddressTapped
-                )
+                }
             }
         }
     }
 
+    // 0. Enter Playlist Name Modal (تسمية قائمة التشغيل — Screenshot 10)
+    pendingPlaylistForNaming?.let { pending ->
+        EnterPlaylistNameModal(
+            defaultName = pending.playlistName,
+            onSave = viewModel::confirmPlaylistNameAndEnterHome,
+            onExit = viewModel::cancelPlaylistNamingModal
+        )
+    }
+
     // 1. Official Telegram Subscription Entry Popup (https://t.me/Dijla_Plus)
-    if (showTelegramPopup && config.telegramPopupEnabled) {
+    if (isAuthenticatedSession && showTelegramPopup && config.telegramPopupEnabled) {
         TelegramSubscriptionPopupModal(
             config = config,
             onDismiss = viewModel::dismissTelegramPopup
@@ -260,7 +318,7 @@ fun DijlahPlusApp(
         )
     }
 
-    // 3. Fullscreen Smart Video Player Modal (Media3 ExoPlayer + Multi-Screen 2x2 + Auto-Resume)
+    // 3. Fullscreen Smart Video Player Modal (Media3 ExoPlayer + Guaranteed Audio Boost + Episode Fallback)
     activePlayerMedia?.let { media ->
         val mediaKey = when (media) {
             is ActivePlayerMedia.MovieMedia -> media.movie.id
@@ -286,13 +344,10 @@ fun DijlahPlusApp(
         )
     }
 
-    // 4. Server Status Modal (100% Stealth)
+    // 4. Server Status Modal (100% Stealth — Zero Item Counts)
     if (showServerStatusModal) {
         XtreamServerStatusModal(
             activePlaylist = activePlaylist,
-            channelsCount = channels.size,
-            moviesCount = movies.size,
-            seriesCount = seriesList.size,
             isSyncing = isSyncingPlaylist,
             pingLatencyMs = pingLatencyMs,
             onRefresh = viewModel::refreshActivePlaylist,

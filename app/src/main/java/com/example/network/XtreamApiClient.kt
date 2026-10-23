@@ -20,6 +20,9 @@ data class XtreamSyncResult(
     val expDate: String = "غير محدود",
     val maxConnections: String = "1",
     val activeConnections: String = "0",
+    val liveCategories: List<String> = emptyList(),
+    val vodCategories: List<String> = emptyList(),
+    val seriesCategories: List<String> = emptyList(),
     val channels: List<LiveChannel> = emptyList(),
     val movies: List<VodMovie> = emptyList(),
     val seriesList: List<VodSeries> = emptyList(),
@@ -34,8 +37,8 @@ object XtreamApiClient {
     }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
+        .connectTimeout(18, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -182,6 +185,21 @@ object XtreamApiClient {
                     categoryMap = serCatMap
                 )
 
+                val allLiveCats = (liveCatMap.values + channels.map { it.category })
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val allVodCats = (vodCatMap.values + movies.map { it.category })
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val allSeriesCats = (serCatMap.values + seriesList.map { it.category })
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
                 if (channels.isEmpty() && movies.isEmpty() && seriesList.isEmpty()) {
                     XtreamSyncResult(
                         success = false,
@@ -194,6 +212,9 @@ object XtreamApiClient {
                         expDate = expDate,
                         maxConnections = maxCons,
                         activeConnections = activeCons,
+                        liveCategories = allLiveCats,
+                        vodCategories = allVodCats,
+                        seriesCategories = allSeriesCats,
                         channels = channels,
                         movies = movies,
                         seriesList = seriesList
@@ -208,11 +229,11 @@ object XtreamApiClient {
         }
     }
 
-    private fun parseCategoryMap(rawJson: String?): Map<String, String> {
-        if (rawJson.isNullOrBlank()) return emptyMap()
-        val map = mutableMapOf<String, String>()
+    private fun parseCategoryMap(rawJson: String?): LinkedHashMap<String, String> {
+        val map = LinkedHashMap<String, String>()
+        if (rawJson.isNullOrBlank()) return map
         try {
-            val arr = json.parseToJsonElement(rawJson) as? JsonArray ?: return emptyMap()
+            val arr = json.parseToJsonElement(rawJson) as? JsonArray ?: return map
             for (el in arr) {
                 val obj = el as? JsonObject ?: continue
                 val id = obj.str("category_id")
@@ -240,9 +261,8 @@ object XtreamApiClient {
             val arr = json.parseToJsonElement(rawJson) as? JsonArray ?: return emptyList()
             var numCounter = 1
             for (el in arr) {
-                if (result.size >= 3500) break
                 val obj = el as? JsonObject ?: continue
-                val streamId = obj.str("stream_id")
+                val streamId = obj.str("stream_id").ifBlank { obj.str("id") }
                 if (streamId.isBlank()) continue
                 val name = obj.str("name", "Channel $streamId").trim()
                 if (isDecorativeSeparator(name)) continue
@@ -322,24 +342,25 @@ object XtreamApiClient {
     ): List<VodMovie> {
         if (rawJson.isNullOrBlank()) return emptyList()
         val result = mutableListOf<VodMovie>()
-        val palette = listOf(0xFF1E3E62L, 0xFF0B192CL, 0xFF8C5A2BL, 0xFFD4AF37L)
+        val palette = listOf(0xFF0D1E33L, 0xFF17324DL, 0xFF7C4D25L, 0xFFD4AF37L)
         try {
             val arr = json.parseToJsonElement(rawJson) as? JsonArray ?: return emptyList()
             for (el in arr) {
-                if (result.size >= 1800) break
                 val obj = el as? JsonObject ?: continue
-                val streamId = obj.str("stream_id")
+                val streamId = obj.str("stream_id").ifBlank { obj.str("id") }
                 if (streamId.isBlank()) continue
                 val name = obj.str("name", "Movie $streamId").trim()
                 if (isDecorativeSeparator(name)) continue
                 val catId = obj.str("category_id")
                 val category = categoryMap[catId] ?: "أفلام متنوعة"
-                val poster = obj.str("stream_icon").takeIf { it.startsWith("http") }
+                val poster = obj.str("stream_icon").ifBlank { obj.str("cover") }.takeIf { it.startsWith("http") }
                 val rating = obj.str("rating", "8.5").takeIf { it.isNotBlank() && it != "0" } ?: "8.5"
-                val ext = obj.str("container_extension", "mp4").ifBlank { "mp4" }
+                val rawExt = obj.str("container_extension", "mp4").trim().removePrefix(".")
+                val cleanExt = rawExt.ifBlank { "mp4" }
+                val addedTs = obj.str("added").toLongOrNull() ?: 0L
                 val yearMatch = Regex("(19\\d{2}|20\\d{2})").find(name)?.value?.toIntOrNull() ?: 2024
                 val isAdult = name.contains("+18") || category.contains("+18") || category.contains("Adult", ignoreCase = true)
-                val movieUrl = "$baseHost/movie/$user/$pass/$streamId.$ext"
+                val movieUrl = "$baseHost/movie/$user/$pass/$streamId.$cleanExt"
 
                 result.add(
                     VodMovie(
@@ -356,7 +377,8 @@ object XtreamApiClient {
                         customPosterUri = poster,
                         streamUrl = movieUrl,
                         streamId = streamId,
-                        containerExtension = ext
+                        containerExtension = cleanExt,
+                        addedTimestamp = addedTs
                     )
                 )
             }
@@ -371,21 +393,21 @@ object XtreamApiClient {
     ): List<VodSeries> {
         if (rawJson.isNullOrBlank()) return emptyList()
         val result = mutableListOf<VodSeries>()
-        val palette = listOf(0xFF0B192CL, 0xFF1E3E62L, 0xFF8C5A2BL)
+        val palette = listOf(0xFF0D1E33L, 0xFF17324DL, 0xFF7C4D25L)
         try {
             val arr = json.parseToJsonElement(rawJson) as? JsonArray ?: return emptyList()
             for (el in arr) {
-                if (result.size >= 1200) break
                 val obj = el as? JsonObject ?: continue
-                val seriesId = obj.str("series_id")
+                val seriesId = obj.str("series_id").ifBlank { obj.str("id") }
                 if (seriesId.isBlank()) continue
                 val name = obj.str("name", "Series $seriesId").trim()
                 if (isDecorativeSeparator(name)) continue
                 val catId = obj.str("category_id")
                 val category = categoryMap[catId] ?: "مسلسلات متنوعة"
-                val cover = obj.str("cover").takeIf { it.startsWith("http") }
+                val cover = obj.str("cover").ifBlank { obj.str("stream_icon") }.takeIf { it.startsWith("http") }
                 val plot = obj.str("plot").ifBlank { "تابع حلقات مسلسل $name بجودة عالية عبر مكتبة دجلة بلس." }
                 val rating = obj.str("rating", "8.7").takeIf { it.isNotBlank() && it != "0" } ?: "8.7"
+                val lastMod = obj.str("last_modified").toLongOrNull() ?: 0L
                 val year = obj.str("releaseDate").take(4).toIntOrNull()
                     ?: Regex("(19\\d{2}|20\\d{2})").find(name)?.value?.toIntOrNull()
                     ?: 2024
@@ -404,7 +426,8 @@ object XtreamApiClient {
                         posterColorHex = palette[result.size % palette.size],
                         customPosterUri = cover,
                         seasons = emptyList(),
-                        seriesId = seriesId
+                        seriesId = seriesId,
+                        lastModifiedTimestamp = lastMod
                     )
                 )
             }
@@ -413,6 +436,14 @@ object XtreamApiClient {
         return result
     }
 
+    /**
+     * ROOT-CAUSE FIX FOR SERIES EPISODE PLAYBACK:
+     * 1) Handles `data.episodes` whether it is a JsonObject keyed by season number ("1": [...], "2": [...])
+     *    OR a JsonArray (nested arrays per season OR flat list of episode objects).
+     * 2) Extracts the true episode ID via `episode.id || episode.episode_id || episode.stream_id`.
+     * 3) Cleans `container_extension` (`replace(/^\./, '')`, default `mp4`).
+     * 4) Builds `${server.host}/series/${server.username}/${server.password}/${epId}.${cleanExt}`.
+     */
     suspend fun fetchSeriesInfo(
         hostUrl: String,
         username: String,
@@ -429,47 +460,116 @@ object XtreamApiClient {
         val url = "$baseHost/player_api.php?username=$uEnc&password=$pEnc&action=get_series_info&series_id=$sEnc"
 
         val rawJson = fetchJsonText(url) ?: return@withContext emptyList()
-        val seasons = mutableListOf<SeriesSeason>()
+        val seasonsMap = linkedMapOf<Int, MutableList<SeriesEpisode>>()
+
+        fun parseSingleEpisodeObj(epObj: JsonObject, defaultSeasonNum: Int, fallbackEpIndex: Int): Pair<Int, SeriesEpisode>? {
+            val infoObj = epObj["info"] as? JsonObject
+            val epId = epObj.str("id")
+                .ifBlank { epObj.str("episode_id") }
+                .ifBlank { epObj.str("stream_id") }
+                .ifBlank { infoObj?.str("id").orEmpty() }
+                .trim()
+            if (epId.isBlank()) return null
+
+            val seasonNum = epObj.str("season").toIntOrNull()
+                ?: infoObj?.str("season")?.toIntOrNull()
+                ?: defaultSeasonNum
+
+            val epNum = epObj.str("episode_num").toIntOrNull()
+                ?: infoObj?.str("episode_num")?.toIntOrNull()
+                ?: fallbackEpIndex
+
+            val epTitle = epObj.str("title")
+                .ifBlank { infoObj?.str("name").orEmpty() }
+                .ifBlank { "الحلقة $epNum" }
+
+            val rawExt = epObj.str("container_extension")
+                .ifBlank { infoObj?.str("container_extension").orEmpty() }
+                .ifBlank { "mp4" }
+            val cleanExt = rawExt.trim().removePrefix(".").ifBlank { "mp4" }
+
+            val duration = infoObj?.str("duration")?.takeIf { it.isNotBlank() }
+                ?: epObj.str("duration").takeIf { it.isNotBlank() }
+                ?: "حلقة كاملة"
+
+            val primaryUrl = "$baseHost/series/$user/$pass/$epId.$cleanExt"
+
+            val episode = SeriesEpisode(
+                id = "ep_${seasonNum}_${epId}",
+                rawEpisodeId = epId,
+                episodeNumber = epNum,
+                seasonNumber = seasonNum,
+                title = epTitle,
+                duration = duration,
+                containerExtension = cleanExt,
+                streamUrl = primaryUrl
+            )
+            return seasonNum to episode
+        }
+
         try {
-            val root = json.parseToJsonElement(rawJson).jsonObject
-            val episodesObj = root["episodes"] as? JsonObject ?: return@withContext emptyList()
-            for ((seasonKey, epArrayEl) in episodesObj.entries) {
-                val seasonNum = seasonKey.toIntOrNull() ?: (seasons.size + 1)
-                val epArray = epArrayEl as? JsonArray ?: continue
-                val episodes = mutableListOf<SeriesEpisode>()
-                for ((idx, epEl) in epArray.withIndex()) {
-                    val epObj = epEl as? JsonObject ?: continue
-                    val epId = epObj.str("id")
-                    if (epId.isBlank()) continue
-                    val epNum = epObj.str("episode_num").toIntOrNull() ?: (idx + 1)
-                    val epTitle = epObj.str("title", "الحلقة $epNum").ifBlank { "الحلقة $epNum" }
-                    val ext = epObj.str("container_extension", "mp4").ifBlank { "mp4" }
-                    val infoObj = epObj["info"] as? JsonObject
-                    val duration = infoObj?.str("duration", "45:00")?.takeIf { it.isNotBlank() } ?: "حلقة كاملة"
-                    val streamUrl = "$baseHost/series/$user/$pass/$epId.$ext"
-                    episodes.add(
-                        SeriesEpisode(
-                            id = "ep_$epId",
-                            episodeNumber = epNum,
-                            title = epTitle,
-                            duration = duration,
-                            streamUrl = streamUrl
-                        )
-                    )
+            val rootElement = json.parseToJsonElement(rawJson)
+            val root = rootElement as? JsonObject ?: return@withContext emptyList()
+            val episodesElement = root["episodes"] ?: return@withContext emptyList()
+
+            when (episodesElement) {
+                is JsonObject -> {
+                    for ((seasonKey, epArrayEl) in episodesElement.entries) {
+                        val defaultSeasonNum = seasonKey.trim().toIntOrNull() ?: (seasonsMap.size + 1)
+                        when (epArrayEl) {
+                            is JsonArray -> {
+                                for ((idx, epEl) in epArrayEl.withIndex()) {
+                                    val epObj = epEl as? JsonObject ?: continue
+                                    val parsed = parseSingleEpisodeObj(epObj, defaultSeasonNum, idx + 1) ?: continue
+                                    seasonsMap.getOrPut(parsed.first) { mutableListOf() }.add(parsed.second)
+                                }
+                            }
+                            is JsonObject -> {
+                                // Sometimes episodes inside a season object are keyed by episode number
+                                var idx = 1
+                                for ((_, innerEl) in epArrayEl.entries) {
+                                    val epObj = innerEl as? JsonObject ?: continue
+                                    val parsed = parseSingleEpisodeObj(epObj, defaultSeasonNum, idx++) ?: continue
+                                    seasonsMap.getOrPut(parsed.first) { mutableListOf() }.add(parsed.second)
+                                }
+                            }
+                            else -> Unit
+                        }
+                    }
                 }
-                if (episodes.isNotEmpty()) {
-                    seasons.add(
-                        SeriesSeason(
-                            seasonNumber = seasonNum,
-                            title = "الموسم $seasonNum",
-                            episodes = episodes
-                        )
-                    )
+                is JsonArray -> {
+                    for ((outerIdx, itemEl) in episodesElement.withIndex()) {
+                        when (itemEl) {
+                            is JsonArray -> {
+                                val seasonNum = outerIdx + 1
+                                for ((idx, epEl) in itemEl.withIndex()) {
+                                    val epObj = epEl as? JsonObject ?: continue
+                                    val parsed = parseSingleEpisodeObj(epObj, seasonNum, idx + 1) ?: continue
+                                    seasonsMap.getOrPut(parsed.first) { mutableListOf() }.add(parsed.second)
+                                }
+                            }
+                            is JsonObject -> {
+                                val parsed = parseSingleEpisodeObj(itemEl, 1, outerIdx + 1) ?: continue
+                                seasonsMap.getOrPut(parsed.first) { mutableListOf() }.add(parsed.second)
+                            }
+                            else -> Unit
+                        }
+                    }
                 }
+                else -> Unit
             }
         } catch (_: Exception) {
         }
-        seasons.sortedBy { it.seasonNumber }
+
+        seasonsMap.entries
+            .sortedBy { it.key }
+            .map { (seasonNum, eps) ->
+                SeriesSeason(
+                    seasonNumber = seasonNum,
+                    title = "الموسم $seasonNum",
+                    episodes = eps.sortedBy { it.episodeNumber }
+                )
+            }
     }
 
     suspend fun parseM3uPlaylist(m3uUrl: String): List<LiveChannel> = withContext(Dispatchers.IO) {
@@ -523,7 +623,6 @@ object XtreamApiClient {
                             )
                         )
                         counter++
-                        if (channels.size >= 2500) break
                     }
                     pendingName = ""
                 }

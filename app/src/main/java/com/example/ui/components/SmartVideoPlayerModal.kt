@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.view.TextureView
 import android.view.ViewGroup
@@ -26,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +44,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -79,6 +83,12 @@ private data class StreamCandidate(
     val forceMimeType: String?
 )
 
+private data class AudioTrackOption(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String
+)
+
 @OptIn(UnstableApi::class)
 @Composable
 fun SmartVideoPlayerModal(
@@ -89,7 +99,7 @@ fun SmartVideoPlayerModal(
     onSavePlaybackPosition: (String, Long) -> Unit = { _, _ -> },
     onClearPlaybackPosition: (String) -> Unit = {},
     onSelectChannel: (LiveChannel) -> Unit,
-    onPlayNextEpisode: (( VodSeries, SeriesSeason, SeriesEpisode ) -> Unit)? = null,
+    onPlayNextEpisode: ((VodSeries, SeriesSeason, SeriesEpisode) -> Unit)? = null,
     onServerFailover: () -> Unit = {},
     onClose: () -> Unit
 ) {
@@ -151,7 +161,7 @@ fun SmartVideoPlayerModal(
         }
     }
 
-    // Build ordered StreamCandidates: Direct HLS/MP4 -> Direct MPEG-TS -> LocalStreamProxyServer
+    // Build ordered StreamCandidates: Direct MP4/HLS/MPEG-TS -> Format Fallbacks -> LocalStreamProxyServer
     val candidates: List<StreamCandidate> = remember(rawSources, isLiveStream) {
         buildStreamCandidates(rawSources, isLiveStream)
     }
@@ -166,6 +176,10 @@ fun SmartVideoPlayerModal(
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(true) }
     var isMuted by remember { mutableStateOf(false) }
+    var isAudioBoostEnabled by remember { mutableStateOf(true) }
+    var audioStatusToast by remember { mutableStateOf("") }
+    var audioTracks by remember { mutableStateOf<List<AudioTrackOption>>(emptyList()) }
+    var selectedAudioTrackIndex by remember { mutableIntStateOf(0) }
     var hasStreamError by remember { mutableStateOf(false) }
     var errorDetail by remember { mutableStateOf("") }
     var aspectFit by remember { mutableStateOf(AspectRatioFit.FIT) }
@@ -193,12 +207,64 @@ fun SmartVideoPlayerModal(
     }
 
     var retryNonce by remember { mutableIntStateOf(0) }
+    var loudnessEnhancer by remember { mutableStateOf<LoudnessEnhancer?>(null) }
+
+    // Helper function to unlock system + player audio and apply LoudnessEnhancer gain boost
+    fun forceActivateAndBoostAudio(player: ExoPlayer, boost: Boolean) {
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (audioManager != null) {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN
+                )
+                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                if (curVol == 0 && maxVol > 0) {
+                    audioManager.setStreamVolume(
+                        AudioManager.STREAM_MUSIC,
+                        (maxVol * 0.75f).toInt().coerceAtLeast(1),
+                        0
+                    )
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        isMuted = false
+        player.volume = 1.0f
+
+        // Enable audio track renderer and prefer Arabic/English/default audio tracks
+        try {
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .setPreferredAudioLanguages("ar", "ara", "en", "eng")
+                .build()
+        } catch (_: Exception) {
+        }
+
+        // Attach LoudnessEnhancer for MPEG-TS / AC3 / AAC low-volume streams
+        try {
+            val sessionId = player.audioSessionId
+            if (sessionId != C.AUDIO_SESSION_ID_UNSET && sessionId > 0) {
+                if (loudnessEnhancer == null) {
+                    loudnessEnhancer = LoudnessEnhancer(sessionId)
+                }
+                loudnessEnhancer?.setTargetGain(if (boost) 700 else 0)
+                loudnessEnhancer?.enabled = boost
+            }
+        } catch (_: Exception) {
+        }
+    }
 
     // Anti-Freeze Smart Buffer + OkHttpDataSource + Tolerant TsExtractor
     val exoPlayer = remember {
         val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -228,13 +294,12 @@ fun SmartVideoPlayerModal(
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             .setEnableDecoderFallback(true)
 
-        // Anti-Freeze Smart Buffer (protects against 3-5s network drops)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 12_000,
+                /* minBufferMs = */ 10_000,
                 /* maxBufferMs = */ 45_000,
-                /* bufferForPlaybackMs = */ 1_800,
-                /* bufferForPlaybackAfterRebufferMs = */ 3_500
+                /* bufferForPlaybackMs = */ 1_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 3_000
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -252,11 +317,12 @@ fun SmartVideoPlayerModal(
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
+                volume = 1.0f
                 playWhenReady = true
             }
     }
 
-    // Attach listener for buffering, resolution, and automatic failover
+    // Attach listener for buffering, resolution, audio track discovery, and automatic failover
     DisposableEffect(exoPlayer, candidates) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -268,6 +334,7 @@ fun SmartVideoPlayerModal(
                         isBuffering = false
                         hasStreamError = false
                         durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                        forceActivateAndBoostAudio(exoPlayer, isAudioBoostEnabled)
                     }
                     Player.STATE_ENDED -> {
                         isBuffering = false
@@ -284,6 +351,41 @@ fun SmartVideoPlayerModal(
                     }
                     Player.STATE_IDLE -> Unit
                 }
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                try {
+                    loudnessEnhancer?.release()
+                    loudnessEnhancer = null
+                    if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
+                        loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply {
+                            setTargetGain(if (isAudioBoostEnabled) 700 else 0)
+                            enabled = isAudioBoostEnabled
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                val discovered = mutableListOf<AudioTrackOption>()
+                tracks.groups.forEachIndexed { groupIdx, group ->
+                    if (group.type == C.TRACK_TYPE_AUDIO) {
+                        for (trackIdx in 0 until group.length) {
+                            val format = group.getTrackFormat(trackIdx)
+                            val lang = format.language?.uppercase(Locale.US) ?: "AR/DEFAULT"
+                            val label = format.label ?: "مسار صوتي ${discovered.size + 1} ($lang)"
+                            discovered.add(
+                                AudioTrackOption(
+                                    groupIndex = groupIdx,
+                                    trackIndex = trackIdx,
+                                    label = label
+                                )
+                            )
+                        }
+                    }
+                }
+                audioTracks = discovered
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -306,8 +408,7 @@ fun SmartVideoPlayerModal(
                 } else {
                     isBuffering = false
                     hasStreamError = true
-                    // 100% Stealth: Never show raw URL or exception with IP/host
-                    errorDetail = "تعذر تشغيل البث من المسار الحالي، يرجى الضغط على إعادة المحاولة أو التبديل للسيرفر الاحتياطي"
+                    errorDetail = "تعذر تشغيل البث من المسار الحالي، يرجى الضغط على إعادة المحاولة أو التبديل للمسار البديل"
                 }
             }
         }
@@ -318,15 +419,28 @@ fun SmartVideoPlayerModal(
         }
     }
 
-    // Release ExoPlayer cleanly when modal closes
+    // Release ExoPlayer and LoudnessEnhancer cleanly when modal closes
     DisposableEffect(Unit) {
         onDispose {
+            try {
+                loudnessEnhancer?.release()
+                loudnessEnhancer = null
+            } catch (_: Exception) {
+            }
             try {
                 exoPlayer.stop()
                 exoPlayer.clearVideoSurface()
                 exoPlayer.release()
             } catch (_: Exception) {
             }
+        }
+    }
+
+    // Clear audio status toast after 2.5 seconds
+    LaunchedEffect(audioStatusToast) {
+        if (audioStatusToast.isNotBlank()) {
+            delay(2500L)
+            audioStatusToast = ""
         }
     }
 
@@ -344,6 +458,8 @@ fun SmartVideoPlayerModal(
         hasStreamError = false
         errorDetail = ""
 
+        forceActivateAndBoostAudio(exoPlayer, isAudioBoostEnabled)
+
         val mediaItemBuilder = MediaItem.Builder()
             .setUri(Uri.parse(candidate.url))
 
@@ -357,17 +473,18 @@ fun SmartVideoPlayerModal(
         exoPlayer.playWhenReady = true
     }
 
-    // Automatic stall watchdog for live streams (switches to backup candidate if stuck > 16s)
-    LaunchedEffect(currentCandidate, isBuffering, retryNonce) {
+    // Fast automatic fallback watchdog: 4.5s for VOD/Episodes (.mp4 -> .m3u8 -> .ts), 12s for Live TV
+    LaunchedEffect(currentCandidate, isBuffering, retryNonce, isLiveStream) {
         if (isBuffering && currentCandidate != null) {
-            delay(16_000L)
+            val timeoutMs = if (isLiveStream) 12_000L else 4_500L
+            delay(timeoutMs)
             if (isBuffering && !exoPlayer.isPlaying) {
                 if (selectedCandidateIndex < candidates.lastIndex) {
                     selectedCandidateIndex += 1
                 } else {
                     hasStreamError = true
                     isBuffering = false
-                    errorDetail = "انتهت مهلة الاستجابة من السيرفر"
+                    errorDetail = "انتهت مهلة الاستجابة من السيرفر، جرب المسار البديل"
                 }
             }
         }
@@ -510,7 +627,6 @@ fun SmartVideoPlayerModal(
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
-                                        // Standby Cell (respects single-connection Xtream policy until clicked)
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -548,7 +664,6 @@ fun SmartVideoPlayerModal(
                                         }
                                     }
 
-                                    // Cell Overlay Header
                                     Row(
                                         modifier = Modifier
                                             .align(Alignment.TopStart)
@@ -588,6 +703,36 @@ fun SmartVideoPlayerModal(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // Audio Status Feedback Banner
+            if (audioStatusToast.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = DijlahEmerald.copy(alpha = 0.95f),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 66.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = null,
+                            tint = Color(0xFF050B14),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = audioStatusToast,
+                            color = Color(0xFF050B14),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }
@@ -850,7 +995,7 @@ fun SmartVideoPlayerModal(
                             }
                         }
 
-                        // Top-Left OSD Tools: Live Resolution + Ping, Multi-Screen 2x2, Number Pad, Aspect Ratio, Channel List
+                        // Top-Left OSD Tools
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -914,29 +1059,28 @@ fun SmartVideoPlayerModal(
                                 }
                             }
 
-                            // TV Number Pad Zapping inside Player (Live TV only)
-                            if (isLiveStream && allChannels.isNotEmpty()) {
+                            // Digital Channel Number Pad Button (Live TV only)
+                            if (isLiveStream) {
                                 OutlinedButton(
                                     onClick = {
                                         showNumberPadDrawer = !showNumberPadDrawer
                                         showChannelDrawer = false
                                     },
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, DijlahCyan.copy(alpha = 0.6f)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier.height(34.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Dialpad,
-                                        contentDescription = "أرقام القنوات",
-                                        tint = DijlahCyan,
+                                        contentDescription = "طلب رقم القناة",
+                                        tint = DijlahGold,
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "رقم القناة",
-                                        color = DijlahCyan,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = "أرقام",
+                                        color = Color.White,
+                                        fontSize = 10.sp
                                     )
                                 }
                             }
@@ -1052,7 +1196,7 @@ fun SmartVideoPlayerModal(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Playback Transport Controls
+                            // Playback Transport + Guaranteed Audio Boost Controls
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1062,6 +1206,7 @@ fun SmartVideoPlayerModal(
                                         if (exoPlayer.isPlaying) {
                                             exoPlayer.pause()
                                         } else {
+                                            forceActivateAndBoostAudio(exoPlayer, isAudioBoostEnabled)
                                             exoPlayer.play()
                                         }
                                     },
@@ -1104,15 +1249,93 @@ fun SmartVideoPlayerModal(
 
                                 IconButton(
                                     onClick = {
-                                        isMuted = !isMuted
-                                        exoPlayer.volume = if (isMuted) 0f else 1f
+                                        if (isMuted) {
+                                            forceActivateAndBoostAudio(exoPlayer, isAudioBoostEnabled)
+                                            audioStatusToast = "تم تشغيل وتنشيط الصوت 100%"
+                                        } else {
+                                            isMuted = true
+                                            exoPlayer.volume = 0f
+                                        }
                                     }
                                 ) {
                                     Icon(
                                         imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                                         contentDescription = "الصوت",
-                                        tint = if (isMuted) DijlahCrimson else Color.White
+                                        tint = if (isMuted) DijlahCrimson else DijlahEmerald
                                     )
+                                }
+
+                                // Direct Audio Unlocker & Gain Booster Button (تنشيط / رفع الصوت)
+                                Button(
+                                    onClick = {
+                                        isAudioBoostEnabled = true
+                                        forceActivateAndBoostAudio(exoPlayer, true)
+                                        audioStatusToast = "تم تنشيط ومضاعفة مستوى الصوت (Audio Boost)"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = DijlahEmerald.copy(alpha = 0.25f),
+                                        contentColor = DijlahEmerald
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DijlahEmerald),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .height(34.dp)
+                                        .testTag("activate_audio_boost_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "تنشيط / رفع الصوت",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+
+                                // Audio Track Switcher (مسار الصوت)
+                                if (audioTracks.size > 1) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val nextIdx = (selectedAudioTrackIndex + 1) % audioTracks.size
+                                            selectedAudioTrackIndex = nextIdx
+                                            val opt = audioTracks[nextIdx]
+                                            try {
+                                                val groups = exoPlayer.currentTracks.groups
+                                                if (opt.groupIndex in groups.indices) {
+                                                    val mediaTrackGroup = groups[opt.groupIndex].mediaTrackGroup
+                                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                                        .buildUpon()
+                                                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                                        .setOverrideForType(
+                                                            TrackSelectionOverride(mediaTrackGroup, opt.trackIndex)
+                                                        )
+                                                        .build()
+                                                    audioStatusToast = "تم اختيار: ${opt.label}"
+                                                }
+                                            } catch (_: Exception) {
+                                            }
+                                        },
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, DijlahGold),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Audiotrack,
+                                            contentDescription = null,
+                                            tint = DijlahGold,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "مسار الصوت (${selectedAudioTrackIndex + 1}/${audioTracks.size})",
+                                            color = DijlahGold,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
 
                                 IconButton(
@@ -1371,25 +1594,41 @@ fun SmartVideoPlayerModal(
 private fun buildVodFallbackSources(rawUrl: String, baseLabel: String): List<StreamSource> {
     val clean = rawUrl.trim()
     if (clean.isBlank()) return emptyList()
-    val list = mutableListOf(
-        StreamSource(
-            id = "vod_primary",
-            label = "$baseLabel 1 (مباشر)",
-            url = clean,
-            quality = "FHD"
-        )
-    )
-    if (clean.endsWith(".mkv", ignoreCase = true)) {
-        list.add(
-            StreamSource(
-                id = "vod_mp4_alt",
-                label = "$baseLabel 2 (MP4)",
-                url = clean.dropLast(4) + ".mp4",
-                quality = "FHD",
-                isBackup = true
-            )
-        )
+
+    val baseWithoutExt = when {
+        clean.endsWith(".mp4", ignoreCase = true) -> clean.dropLast(4)
+        clean.endsWith(".mkv", ignoreCase = true) -> clean.dropLast(4)
+        clean.endsWith(".m3u8", ignoreCase = true) -> clean.dropLast(5)
+        clean.endsWith(".ts", ignoreCase = true) -> clean.dropLast(3)
+        clean.endsWith(".avi", ignoreCase = true) -> clean.dropLast(4)
+        else -> clean
     }
+
+    val list = mutableListOf<StreamSource>()
+    val seen = mutableSetOf<String>()
+
+    fun addSource(id: String, label: String, url: String, isBackup: Boolean) {
+        if (seen.add(url)) {
+            list.add(
+                StreamSource(
+                    id = id,
+                    label = label,
+                    url = url,
+                    quality = "FHD",
+                    isBackup = isBackup
+                )
+            )
+        }
+    }
+
+    // 1. Original container extension first
+    addSource("vod_primary", "$baseLabel 1 (مباشر)", clean, isBackup = false)
+    // 2. Automatic format fallbacks (.mp4 -> .m3u8 -> .ts -> .mkv)
+    addSource("vod_mp4", "$baseLabel (MP4)", "$baseWithoutExt.mp4", isBackup = true)
+    addSource("vod_hls", "$baseLabel (HLS)", "$baseWithoutExt.m3u8", isBackup = true)
+    addSource("vod_ts", "$baseLabel (MPEG-TS)", "$baseWithoutExt.ts", isBackup = true)
+    addSource("vod_mkv", "$baseLabel (MKV)", "$baseWithoutExt.mkv", isBackup = true)
+
     return list
 }
 
@@ -1458,12 +1697,17 @@ private fun buildStreamCandidates(
                 }
             }
         } else {
+            val forceMime = when {
+                lower.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+                lower.endsWith(".ts") -> MimeTypes.VIDEO_MP2T
+                else -> null
+            }
             if (seenUrls.add(url)) {
                 result.add(
                     StreamCandidate(
                         label = src.label,
                         url = url,
-                        forceMimeType = null
+                        forceMimeType = forceMime
                     )
                 )
             }
@@ -1476,7 +1720,7 @@ private fun buildStreamCandidates(
         if (seenUrls.add(proxyUrl)) {
             result.add(
                 StreamCandidate(
-                    label = "سيرفر دجلة بلس 3 (نفق البروكسي المحلي)",
+                    label = "سيرفر دجلة بلس (نفق البروكسي المحلي)",
                     url = proxyUrl,
                     forceMimeType = if (firstRaw.endsWith(".ts", ignoreCase = true)) MimeTypes.VIDEO_MP2T else null
                 )

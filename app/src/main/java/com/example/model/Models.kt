@@ -5,13 +5,13 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class MainSection(val titleAr: String) {
     HOME("الرئيسية"),
-    MATCHES("جدول المباريات"),
+    MATCHES("الرياضة والمباريات"),
     LIVE_TV("البث المباشر"),
     MOVIES("الأفلام"),
     SERIES("المسلسلات"),
-    FAVORITES("قائمتي"),
+    FAVORITES("المفضلة"),
     SETTINGS("الإعدادات"),
-    PLAYLIST_MANAGER("تغيير قوائم التشغيل")
+    PLAYLIST_MANAGER("تغيير الحساب / القوائم")
 }
 
 @Serializable
@@ -75,15 +75,19 @@ data class VodMovie(
     val customPosterUri: String? = null,
     val streamUrl: String,
     val streamId: String = "",
-    val containerExtension: String = "mp4"
+    val containerExtension: String = "mp4",
+    val addedTimestamp: Long = 0L
 )
 
 @Serializable
 data class SeriesEpisode(
     val id: String,
+    val rawEpisodeId: String = "",
     val episodeNumber: Int,
+    val seasonNumber: Int = 1,
     val title: String,
     val duration: String,
+    val containerExtension: String = "mp4",
     val streamUrl: String
 )
 
@@ -107,7 +111,8 @@ data class VodSeries(
     val posterColorHex: Long = 0xFF0B192C,
     val customPosterUri: String? = null,
     val seasons: List<SeriesSeason> = emptyList(),
-    val seriesId: String = ""
+    val seriesId: String = "",
+    val lastModifiedTimestamp: Long = 0L
 )
 
 @Serializable
@@ -127,10 +132,18 @@ data class VipAccountEntry(
     val username: String,
     val password: String,
     val subscriberName: String = "مشترك VIP",
+    val durationLabel: String = "سنة كاملة (366 يوم)",
     val expiryDate: String = "غير محدود",
+    val expiresAtEpochMs: Long = 0L, // 0L = غير محدود
     val maxConnections: Int = 1,
+    val maxDevices: Int = 1, // 1 = فردي، 2..5 = اشتراك عائلي، 0 = غير محدود
+    val registeredMacs: List<String> = emptyList(),
+    val manualMacAddress: String = "",
     val linkedServerId: String = "srv_foxbleu_primary",
-    val macLockEnabled: Boolean = false,
+    val customServerHost: String = "",
+    val customServerUser: String = "",
+    val customServerPass: String = "",
+    val macLockEnabled: Boolean = true,
     val boundMacAddress: String = "",
     val isActive: Boolean = true
 )
@@ -138,9 +151,17 @@ data class VipAccountEntry(
 @Serializable
 data class ActivationCodeEntry(
     val code: String,
-    val label: String = "كود تفعيل VIP",
+    val label: String = "كود تفعيل دجلة بلس",
+    val durationLabel: String = "سنة كاملة (366 يوم)",
     val expiryDate: String = "غير محدود",
+    val expiresAtEpochMs: Long = 0L, // 0L = غير محدود
+    val maxDevices: Int = 0, // 0 = غير محدود (مفتوح)، 1..5 = محدد بعدد أجهزة
+    val registeredMacs: List<String> = emptyList(),
+    val manualMacAddress: String = "",
     val linkedServerId: String = "srv_foxbleu_primary",
+    val customServerHost: String = "http://foxbleu.org:8789",
+    val customServerUser: String = "ludovic",
+    val customServerPass: String = "8333",
     val macLockEnabled: Boolean = false,
     val boundMacAddress: String = "",
     val isActive: Boolean = true
@@ -184,7 +205,7 @@ data class AppConfig(
         PromoBannerSlide(
             id = "slide_2",
             title = "مكتبة الأفلام والمسلسلات الحصرية",
-            subtitle = "أحدث الإنتاجات العربية والعالمية مع خاصية استكمال المشاهدة التلقائي",
+            subtitle = "أحدث الإنتاجات العربية والعالمية مع خاصية استئناف المشاهدة التلقائي",
             badgeText = "مكتبة VOD",
             targetAction = "MOVIES",
             accentHex = 0xFF00D2FF
@@ -203,29 +224,59 @@ data class AppConfig(
     val secretSearchCode: String = "#*2008*#",
     val lockAdultContent: Boolean = true,
     val lockedCategories: List<String> = emptyList(),
+    val hiddenLiveCategories: List<String> = emptyList(),
+    val hiddenVodCategories: List<String> = emptyList(),
+    val hiddenSeriesCategories: List<String> = emptyList(),
+    val streamFormatPref: String = "HLS (m3u8) تلقائي",
+    val channelSortPref: String = "الترتيب الافتراضي",
+    val autoPlayEnabled: Boolean = true,
+    val timeFormat24h: Boolean = false,
+    val deviceTypeMode: String = "شاشة سمارت / موبايل (تلقائي)",
+    val subtitleSizePref: String = "كبير وواضح (ذهبي)",
+    val internalPlayerEngine: String = "مشغل دجلة بلس الذكي (Media3 + Audio Boost)",
+    val externalPlayerEnabled: Boolean = false,
+    val appThemeStyle: String = "الثيم الملكي الكحلي والذهبي",
     val cloudSyncUrl: String = "",
     val macAddress: String = "24:43:dd:c9:07:47",
-    val validActivationCodes: List<String> = listOf("1", "D1", "B1"),
+    val validActivationCodes: List<String> = listOf("D1", "1", "B1"),
     val activationCodeEntries: List<ActivationCodeEntry> = listOf(
         ActivationCodeEntry(
-            code = "1",
-            label = "كود دجلة السريع (1)",
+            code = "D1",
+            label = "كود باقة دجلة الذهبية المجاني (D1)",
+            durationLabel = "مفتوح (غير محدود)",
             expiryDate = "غير محدود",
+            expiresAtEpochMs = 0L,
+            maxDevices = 0,
             linkedServerId = "srv_foxbleu_primary",
+            customServerHost = "http://foxbleu.org:8789",
+            customServerUser = "ludovic",
+            customServerPass = "8333",
             macLockEnabled = false
         ),
         ActivationCodeEntry(
-            code = "D1",
-            label = "كود باقة دجلة الذهبية (D1)",
+            code = "1",
+            label = "كود دجلة السريع (1)",
+            durationLabel = "مفتوح (غير محدود)",
             expiryDate = "غير محدود",
+            expiresAtEpochMs = 0L,
+            maxDevices = 0,
             linkedServerId = "srv_foxbleu_primary",
+            customServerHost = "http://foxbleu.org:8789",
+            customServerUser = "ludovic",
+            customServerPass = "8333",
             macLockEnabled = false
         ),
         ActivationCodeEntry(
             code = "B1",
             label = "كود الباقة الملكية (B1)",
+            durationLabel = "مفتوح (غير محدود)",
             expiryDate = "غير محدود",
+            expiresAtEpochMs = 0L,
+            maxDevices = 0,
             linkedServerId = "srv_foxbleu_primary",
+            customServerHost = "http://foxbleu.org:8789",
+            customServerUser = "ludovic",
+            customServerPass = "8333",
             macLockEnabled = false
         )
     ),
@@ -235,9 +286,15 @@ data class AppConfig(
             username = "vip1",
             password = "2008",
             subscriberName = "مشترك دجلة بلس الملكي",
+            durationLabel = "سنة كاملة (366 يوم)",
             expiryDate = "غير محدود",
-            maxConnections = 1,
+            expiresAtEpochMs = 0L,
+            maxConnections = 3,
+            maxDevices = 3,
             linkedServerId = "srv_foxbleu_primary",
+            customServerHost = "http://foxbleu.org:8789",
+            customServerUser = "ludovic",
+            customServerPass = "8333",
             macLockEnabled = false
         ),
         VipAccountEntry(
@@ -245,9 +302,15 @@ data class AppConfig(
             username = "ludovic",
             password = "8333",
             subscriberName = "الحساب الرئيسي VIP",
+            durationLabel = "سنة كاملة (366 يوم)",
             expiryDate = "غير محدود",
-            maxConnections = 1,
+            expiresAtEpochMs = 0L,
+            maxConnections = 5,
+            maxDevices = 0,
             linkedServerId = "srv_foxbleu_primary",
+            customServerHost = "http://foxbleu.org:8789",
+            customServerUser = "ludovic",
+            customServerPass = "8333",
             macLockEnabled = false
         )
     ),
@@ -288,9 +351,14 @@ data class DijlahDatabaseSnapshot(
     val matches: List<MatchItem>,
     val movies: List<VodMovie>,
     val seriesList: List<VodSeries>,
+    val liveCategories: List<String> = emptyList(),
+    val vodCategories: List<String> = emptyList(),
+    val seriesCategories: List<String> = emptyList(),
     val favoriteIds: List<String> = emptyList(),
     val savedPlaylists: List<SavedPlaylistAccount> = emptyList(),
-    val savedPlaybackPositions: Map<String, Long> = emptyMap()
+    val savedPlaybackPositions: Map<String, Long> = emptyMap(),
+    val recentlyWatchedChannelIds: List<String> = emptyList(),
+    val recentlyWatchedSeriesIds: List<String> = emptyList()
 )
 
 sealed class ActivePlayerMedia {

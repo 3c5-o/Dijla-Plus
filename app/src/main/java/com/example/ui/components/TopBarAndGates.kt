@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -47,6 +46,7 @@ import java.util.Locale
 @Composable
 fun DijlahTopBar(
     config: AppConfig,
+    activePlaylist: SavedPlaylistAccount? = null,
     currentSection: MainSection,
     searchQuery: String,
     isSyncing: Boolean,
@@ -62,9 +62,9 @@ fun DijlahTopBar(
     var currentTimeText by remember { mutableStateOf("") }
     var currentDateText by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(config.timeFormat24h) {
         val arabicLocale = Locale.forLanguageTag("ar")
-        val timeFmt = SimpleDateFormat("hh:mm a", arabicLocale)
+        val timeFmt = SimpleDateFormat(if (config.timeFormat24h) "HH:mm" else "hh:mm a", arabicLocale)
         val dateFmt = SimpleDateFormat("EEE d MMM yyyy", arabicLocale)
         while (true) {
             val now = Date()
@@ -80,7 +80,7 @@ fun DijlahTopBar(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF050B14),
+                        Color(0xFF050A12),
                         Color(0xEE081220)
                     )
                 )
@@ -94,9 +94,9 @@ fun DijlahTopBar(
                     .background(
                         Brush.horizontalGradient(
                             listOf(
-                                Color(0xFF1E3E62),
-                                Color(0xFF8C5A2B),
-                                Color(0xFF0B192C)
+                                Color(0xFF0D1E33),
+                                Color(0xFF7C4D25),
+                                Color(0xFF050A12)
                             )
                         )
                     )
@@ -111,7 +111,7 @@ fun DijlahTopBar(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "تنبيه الإدارة: ${config.liveBroadcastBanner}",
+                    text = "إشعار دجلة بلس: ${config.liveBroadcastBanner}",
                     color = DijlahTextPrimary,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -128,46 +128,15 @@ fun DijlahTopBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Right Side (in RTL): Brand Identity + Back Button (7-tap secret trigger on Logo)
+                // Right Side (in RTL): DijlaLogo + App Brand + Subscription Expiration
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (currentSection != MainSection.HOME) {
-                        Surface(
-                            onClick = { onSelectSection(MainSection.HOME) },
-                            color = DijlahSurfaceCard,
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, DijlahGold.copy(alpha = 0.45f)),
-                            modifier = Modifier
-                                .height(36.dp)
-                                .testTag("back_to_home_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "الرئيسية",
-                                    tint = DijlahGold,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "الرئيسية",
-                                    color = DijlahGold,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-
                     // Brand Logo Box (7-Tap Secret Admin Trigger)
                     Row(
                         modifier = Modifier
@@ -179,25 +148,7 @@ fun DijlahTopBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(DijlahGold, DijlahAmber, DijlahWarmBronze)
-                                    )
-                                )
-                                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(10.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LiveTv,
-                                contentDescription = "شعار دجلة بلس",
-                                tint = Color(0xFF050B14),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                        DijlaLogo(size = 40.dp)
 
                         Column {
                             Row(
@@ -208,7 +159,7 @@ fun DijlahTopBar(
                                     text = config.appName.ifBlank { "دجلة بلس | Dijla Plus" },
                                     color = DijlahTextPrimary,
                                     fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 15.sp,
+                                    fontSize = 14.sp,
                                     maxLines = 1
                                 )
                                 Box(
@@ -227,127 +178,122 @@ fun DijlahTopBar(
                                 }
                             }
                             Text(
-                                text = if (currentSection == MainSection.HOME) config.slogan else currentSection.titleAr,
-                                color = DijlahTextSecondary,
+                                text = "الاشتراك الحالي ينتهي في: ${activePlaylist?.expDate ?: "غير محدود"}",
+                                color = DijlahGold,
                                 fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
+
+                    // Primary Top Navigation Tabs: الرئيسية | البث المباشر | الأفلام | المسلسلات
+                    val mainNavTabs = listOf(
+                        MainSection.HOME to "الرئيسية",
+                        MainSection.LIVE_TV to "البث المباشر",
+                        MainSection.MOVIES to "الأفلام",
+                        MainSection.SERIES to "المسلسلات"
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        mainNavTabs.forEach { (sec, label) ->
+                            val selected = currentSection == sec
+                            val bg by animateColorAsState(
+                                if (selected) DijlahGold else Color(0xFF0D1E33),
+                                label = "topNavBg"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(bg)
+                                    .border(
+                                        1.dp,
+                                        if (selected) DijlahGold else DijlahGold.copy(alpha = 0.25f),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { onSelectSection(sec) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("top_nav_${sec.name.lowercase()}")
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) Color(0xFF050B14) else DijlahTextPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
                 }
 
-                // Center: Search Bar (supports secret #*2008*# code) + Quick Section Pills
-                Row(
+                // Center: Search Bar (supports secret #*2008*# code)
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(DijlahSurfaceCard)
-                            .border(
-                                width = 1.dp,
-                                color = if (searchQuery.isNotEmpty()) DijlahGold else Color.White.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(18.dp)
-                            )
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "بحث",
-                                tint = DijlahGold,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(modifier = Modifier.weight(1f)) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "ابحث عن قناة، مباراة، فيلم، أو مسلسل...",
-                                        color = DijlahTextSecondary.copy(alpha = 0.7f),
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = onSearchQueryChanged,
-                                    singleLine = true,
-                                    textStyle = TextStyle(
-                                        color = DijlahTextPrimary,
-                                        fontSize = 12.sp
-                                    ),
-                                    cursorBrush = SolidColor(DijlahGold),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("global_search_input")
-                                )
-                            }
-                            if (searchQuery.isNotEmpty()) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "مسح البحث",
-                                    tint = DijlahTextSecondary,
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clickable { onSearchQueryChanged("") }
-                                )
-                            }
-                        }
-                    }
-
-                    // Quick Navigation Pills when inside sub-sections
-                    if (currentSection != MainSection.HOME) {
-                        val quickItems = listOf(
-                            MainSection.LIVE_TV to "مباشر",
-                            MainSection.MOVIES to "أفلام",
-                            MainSection.SERIES to "مسلسلات",
-                            MainSection.MATCHES to "مباريات",
-                            MainSection.FAVORITES to "قائمتي"
+                        .padding(horizontal = 10.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF0D1E33))
+                        .border(
+                            width = 1.dp,
+                            color = if (searchQuery.isNotEmpty()) DijlahGold else DijlahGold.copy(alpha = 0.25f),
+                            shape = RoundedCornerShape(18.dp)
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            quickItems.forEach { (sec, label) ->
-                                val selected = currentSection == sec
-                                val bg by animateColorAsState(
-                                    if (selected) DijlahGold else DijlahSurfaceCard,
-                                    label = "navPillBg"
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "بحث",
+                            tint = DijlahGold,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "ابحث عن قناة، فيلم، أو مسلسل...",
+                                    color = DijlahTextSecondary.copy(alpha = 0.7f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(bg)
-                                        .border(
-                                            1.dp,
-                                            if (selected) DijlahGold else Color.White.copy(alpha = 0.08f),
-                                            RoundedCornerShape(10.dp)
-                                        )
-                                        .clickable { onSelectSection(sec) }
-                                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = label,
-                                        color = if (selected) Color(0xFF050B14) else DijlahTextPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
-                                    )
-                                }
                             }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearchQueryChanged,
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = DijlahTextPrimary,
+                                    fontSize = 12.sp
+                                ),
+                                cursorBrush = SolidColor(DijlahGold),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("global_search_input")
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "مسح البحث",
+                                tint = DijlahTextSecondary,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { onSearchQueryChanged("") }
+                            )
                         }
                     }
                 }
 
-                // Left Side (in RTL): Telegram Badge + Server Status + Ping + Live Clock
+                // Left Side (in RTL): Telegram Badge + Server Status + Clock
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -386,7 +332,7 @@ fun DijlahTopBar(
                         )
                     }
 
-                    // Server Status + Live Ping Badge (100% Stealth)
+                    // Server Status Badge (100% Stealth)
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
@@ -401,10 +347,10 @@ fun DijlahTopBar(
                                 shape = RoundedCornerShape(14.dp)
                             )
                             .clickable { onOpenServerStatus() }
-                            .padding(horizontal = 9.dp, vertical = 5.dp)
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
                             .testTag("server_status_badge"),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (isSyncing) {
                             CircularProgressIndicator(
@@ -422,8 +368,8 @@ fun DijlahTopBar(
                         }
                         Text(
                             text = when {
-                                isSyncing -> "مزامنة..."
-                                config.isServerOnline -> "${pingLatencyMs}ms | VIP"
+                                isSyncing -> "تحديث..."
+                                config.isServerOnline -> "${pingLatencyMs}ms"
                                 else -> "غير متصل"
                             },
                             color = if (config.isServerOnline) DijlahEmerald else DijlahCrimson,
@@ -451,7 +397,7 @@ fun DijlahTopBar(
         }
 
         HorizontalDivider(
-            color = DijlahGold.copy(alpha = 0.2f),
+            color = DijlahGold.copy(alpha = 0.22f),
             thickness = 1.dp
         )
     }
@@ -475,11 +421,11 @@ fun TelegramSubscriptionPopupModal(
             Column(
                 modifier = Modifier
                     .background(
-                        Brush.verticalGradient(
+                        Brush.linearGradient(
                             colors = listOf(
-                                DijlahSurfaceCard,
-                                DijlahSurfaceElevated.copy(alpha = 0.7f),
-                                DijlahBgDark
+                                Color(0xFF0D1E33),
+                                Color(0xFF17324D),
+                                Color(0xFF7C4D25)
                             )
                         )
                     )
@@ -487,25 +433,7 @@ fun TelegramSubscriptionPopupModal(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(DijlahCyan, DijlahSurfaceElevated)
-                            )
-                        )
-                        .border(1.5.dp, DijlahGold, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "قناة دجلة بلس على تلغرام",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                DijlaLogo(size = 64.dp)
 
                 Text(
                     text = config.telegramPopupTitle.ifBlank { "قناة دجلة بلس الرسمية" },
@@ -518,8 +446,8 @@ fun TelegramSubscriptionPopupModal(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(DijlahGold.copy(alpha = 0.16f))
-                        .border(1.dp, DijlahGold.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                        .background(DijlahGold.copy(alpha = 0.18f))
+                        .border(1.dp, DijlahGold.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text(
@@ -532,9 +460,9 @@ fun TelegramSubscriptionPopupModal(
 
                 Text(
                     text = config.telegramPopupMessage.ifBlank {
-                        "اشترك في قناة دجلة بلس الرسمية على تلغرام للحصول على أحدث الأكواد والتحديثات ومتابعة المباريات العالمية."
+                        "تابعونا على التلغرام @Dijla_Plus للحصول على أحدث الأكواد والتحديثات ومتابعة المباريات العالمية."
                     },
-                    color = DijlahTextSecondary,
+                    color = Color.White.copy(alpha = 0.9f),
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,
                     lineHeight = 19.sp
@@ -553,11 +481,11 @@ fun TelegramSubscriptionPopupModal(
                             .height(44.dp)
                             .testTag("telegram_popup_cancel_button"),
                         shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
                     ) {
                         Text(
                             text = "إلغاء",
-                            color = DijlahTextSecondary,
+                            color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -601,9 +529,6 @@ fun TelegramSubscriptionPopupModal(
 @Composable
 fun XtreamServerStatusModal(
     activePlaylist: SavedPlaylistAccount?,
-    channelsCount: Int,
-    moviesCount: Int,
-    seriesCount: Int,
     isSyncing: Boolean,
     pingLatencyMs: Int = 24,
     onRefresh: () -> Unit,
@@ -632,11 +557,7 @@ fun XtreamServerStatusModal(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Dns,
-                            contentDescription = "حالة السيرفر",
-                            tint = DijlahGold
-                        )
+                        DijlaLogo(size = 32.dp)
                         Text(
                             text = "معلومات اتصال سيرفر دجلة بلس VIP",
                             color = DijlahTextPrimary,
@@ -660,14 +581,11 @@ fun XtreamServerStatusModal(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        StatusRowItem("البوابة النشطة", "سيرفر دجلة بلس VIP", DijlahGold)
-                        StatusRowItem("حالة الاشتراك", if (activePlaylist?.status == "Active") "نشط (Active)" else (activePlaylist?.status ?: "نشط"))
-                        StatusRowItem("سرعة الاستجابة (Ping)", "${pingLatencyMs} ms (فائق السرعة)", DijlahCyan)
-                        StatusRowItem("نظام الحماية والتشفير", "Stealth Stream Proxy مفعل", DijlahEmerald)
-                        StatusRowItem("تاريخ الصلاحية", activePlaylist?.expDate ?: "غير محدود")
-                        StatusRowItem("القنوات المباشرة المحملة", "$channelsCount قناة")
-                        StatusRowItem("مكتبة الأفلام (VOD)", "$moviesCount فيلم")
-                        StatusRowItem("مكتبة المسلسلات", "$seriesCount مسلسل")
+                        StatusRowItem("القائمة النشطة", activePlaylist?.playlistName ?: "دجلة بلس", DijlahGold)
+                        StatusRowItem("حالة الاشتراك", if (activePlaylist?.status == "Active") "نشط ومفعل" else "نشط", DijlahEmerald)
+                        StatusRowItem("سرعة الاستجابة", "${pingLatencyMs} ms (فائق السرعة)", DijlahCyan)
+                        StatusRowItem("نظام الحماية", "Stealth Stream Proxy مفعل", DijlahEmerald)
+                        StatusRowItem("الاشتراك الحالي ينتهي في", activePlaylist?.expDate ?: "غير محدود", DijlahGold)
                     }
                 }
 
@@ -683,7 +601,7 @@ fun XtreamServerStatusModal(
                         modifier = Modifier.weight(1f),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DijlahGold)
                     ) {
-                        Text("إدارة القوائم", color = DijlahGold, fontWeight = FontWeight.Bold)
+                        Text("تغيير الحساب / القوائم", color = DijlahGold, fontWeight = FontWeight.Bold)
                     }
                     Button(
                         onClick = onRefresh,
@@ -695,7 +613,7 @@ fun XtreamServerStatusModal(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = if (isSyncing) "جاري التحديث..." else "تحديث الآن",
+                            text = if (isSyncing) "جاري التحديث..." else "تحديث المحتوى",
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
@@ -738,20 +656,7 @@ fun StealthPinPromptDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(DijlahGold.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Shield,
-                        contentDescription = "لوحة تحكم الإدارة",
-                        tint = DijlahGold,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                DijlaLogo(size = 54.dp)
 
                 Text(
                     text = "بوابة إدارة دجلة بلس | Dijla Plus",
@@ -762,7 +667,7 @@ fun StealthPinPromptDialog(
                 )
 
                 Text(
-                    text = "أدخل الرمز السري للمسؤول لفتح لوحة التحكم الشاملة",
+                    text = "أدخل الرمز السري للإدارة لفتح لوحة التحكم الشاملة",
                     color = DijlahTextSecondary,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
@@ -774,7 +679,7 @@ fun StealthPinPromptDialog(
                         pinInput = it
                         hasError = false
                     },
-                    label = { Text("الرمز السري للمسؤول") },
+                    label = { Text("كلمة مرور الإدارة") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -877,7 +782,7 @@ fun ParentalPinGateDialog(
                 )
 
                 Text(
-                    text = "يرجى إدخال رمز القفل العائلي (PIN) للمتابعة",
+                    text = "يرجى إدخال رمز القفل العائلي للمتابعة",
                     color = DijlahTextSecondary,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
@@ -889,7 +794,7 @@ fun ParentalPinGateDialog(
                         pinInput = it
                         hasError = false
                     },
-                    label = { Text("رمز PIN") },
+                    label = { Text("رمز القفل العائلي") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -907,7 +812,7 @@ fun ParentalPinGateDialog(
 
                 if (hasError) {
                     Text(
-                        text = "رمز PIN غير صحيح",
+                        text = "الرمز غير صحيح",
                         color = DijlahCrimson,
                         fontSize = 12.sp
                     )

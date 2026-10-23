@@ -15,13 +15,13 @@
                 android:type="linear">
                 <item
                     android:offset="0.0"
-                    android:color="#111E27" />
+                    android:color="#050B14" />
                 <item
-                    android:offset="0.55"
-                    android:color="#3A281D" />
+                    android:offset="0.6"
+                    android:color="#0D253F" />
                 <item
                     android:offset="1.0"
-                    android:color="#9A5B25" />
+                    android:color="#17324D" />
             </gradient>
         </aapt:attr>
     </path>
