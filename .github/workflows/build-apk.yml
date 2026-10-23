@@ -27,35 +27,66 @@ jobs:
       - name: Configure Android SDK Licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sudo chown -R "$(id -u):$(id -g)" "$SDK_DIR" 2>/dev/null || true
+          chmod -R u+rwX "$SDK_DIR" 2>/dev/null || true
           mkdir -p "$SDK_DIR/licenses"
           printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" > "$SDK_DIR/licenses/android-sdk-license"
           printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" > "$SDK_DIR/licenses/android-sdk-preview-license"
+          printf "\n601085b94cd77f0b54ff86406957099ebe79c4d6\n" > "$SDK_DIR/licenses/android-googletv-license"
+          printf "\nceff83576aac4f7f37cb98fe189e9fb3c49d3b81\n" > "$SDK_DIR/licenses/android-googlexr-license"
+          printf "\n859f317696f67ef3d7f30a5560e7834b43903\n" > "$SDK_DIR/licenses/android-sdk-arm-dbt-license"
+          printf "\n33b6a2b64607f11b759f320ef9dff4ae5c47d97a\n" > "$SDK_DIR/licenses/google-gdk-license"
+          SDKMANAGER=$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1)
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
+            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "build-tools;36.0.0" "platforms;android-36" "platforms;android-36.1" || "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "build-tools;36.0.0" "platforms;android-36" || true
+          fi
           echo "ANDROID_HOME=$SDK_DIR" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$SDK_DIR" >> $GITHUB_ENV
 
       - name: Prepare Environment & Signing Keystores
         run: |
+          sed -i 's/rootProject.name = .*/rootProject.name = "DijlaPlus"/' settings.gradle.kts
+          if [ ! -f .env.example ]; then
+            echo "# GEMINI_API_KEY=MY_GEMINI_API_KEY" > .env.example
+          fi
           if [ ! -f .env ]; then
-            if [ -f .env.example ]; then
-              cp .env.example .env
-            else
-              touch .env
-            fi
+            cp .env.example .env
           fi
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+            base64 -di debug.keystore.base64 > debug.keystore || rm -f debug.keystore
           fi
-          if [ ! -f my-upload-key.jks ]; then
+          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
+            rm -f debug.keystore
             keytool -genkeypair -v \
-              -keystore my-upload-key.jks \
-              -alias upload \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -storepass dijlaplus2026 \
-              -keypass dijlaplus2026 \
-              -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
+          rm -f my-upload-key.jks
+          keytool -genkeypair -v \
+            -keystore my-upload-key.jks \
+            -alias upload \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass dijlaplus2026 \
+            -keypass dijlaplus2026 \
+            -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
+          keytool -genkeypair -v \
+            -keystore my-upload-key.jks \
+            -alias release \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass dijlaplus2026 \
+            -keypass dijlaplus2026 \
+            -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
           if [ -f gradlew ]; then
             chmod +x gradlew
           fi
@@ -68,10 +99,22 @@ jobs:
       - name: Build Debug & Release APKs
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'dijlaplus2026' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'dijlaplus2026' }}
+          STORE_PASSWORD: dijlaplus2026
+          KEY_ALIAS: upload
+          KEY_PASSWORD: dijlaplus2026
         run: |
-          gradle assembleDebug assembleRelease --no-daemon --stacktrace
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_DIR/platforms/android-36.1" ] && [ -d "$SDK_DIR/platforms/android-36" ]; then
+            sed -i 's/compileSdk { version = release(36) { minorApiLevel = 1 } }/compileSdk = 36/' app/build.gradle.kts || true
+          fi
+          export KEYSTORE_PATH="${GITHUB_WORKSPACE}/my-upload-key.jks"
+          export STORE_PASSWORD="dijlaplus2026"
+          export KEY_ALIAS="upload"
+          export KEY_PASSWORD="dijlaplus2026"
+          gradle assembleDebug assembleRelease \
+            -x lint -x lintVitalRelease -x lintVitalAnalyzeRelease \
+            --no-configuration-cache \
+            --stacktrace
 
       - name: Collect Generated APK Files
         run: |

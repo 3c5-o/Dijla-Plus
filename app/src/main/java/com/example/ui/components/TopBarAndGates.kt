@@ -63,8 +63,9 @@ fun DijlahTopBar(
     var currentDateText by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        val timeFmt = SimpleDateFormat("hh:mm a", Locale("ar"))
-        val dateFmt = SimpleDateFormat("EEE d MMM yyyy", Locale("ar"))
+        val arabicLocale = Locale.forLanguageTag("ar")
+        val timeFmt = SimpleDateFormat("hh:mm a", arabicLocale)
+        val dateFmt = SimpleDateFormat("EEE d MMM yyyy", arabicLocale)
         while (true) {
             val now = Date()
             currentTimeText = timeFmt.format(now)

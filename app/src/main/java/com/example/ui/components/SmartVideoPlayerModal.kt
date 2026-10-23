@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -984,7 +985,7 @@ fun SmartVideoPlayerModal(
                                         .testTag("toggle_channel_drawer_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.FormatListBulleted,
+                                        imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
                                         contentDescription = null,
                                         modifier = Modifier.size(15.dp)
                                     )
