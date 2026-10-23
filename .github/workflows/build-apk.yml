@@ -9,9 +9,12 @@ on:
       - '**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
-    name: Build Debug & Release APK
+    name: Build & Sign Debug + Release APKs
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +27,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Configure Android SDK Licenses
+      - name: Configure Android SDK & Build Tools
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           sudo chown -R "$(id -u):$(id -g)" "$SDK_DIR" 2>/dev/null || true
@@ -59,6 +62,7 @@ jobs:
           if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
             rm -f debug.keystore
             keytool -genkeypair -v \
+              -storetype PKCS12 \
               -keystore debug.keystore \
               -alias androiddebugkey \
               -keyalg RSA \
@@ -68,25 +72,29 @@ jobs:
               -keypass android \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-          rm -f my-upload-key.jks
-          keytool -genkeypair -v \
-            -keystore my-upload-key.jks \
-            -alias upload \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass dijlaplus2026 \
-            -keypass dijlaplus2026 \
-            -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
-          keytool -genkeypair -v \
-            -keystore my-upload-key.jks \
-            -alias release \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass dijlaplus2026 \
-            -keypass dijlaplus2026 \
-            -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
+          if [ ! -f my-upload-key.jks ] || [ ! -s my-upload-key.jks ]; then
+            rm -f my-upload-key.jks
+            keytool -genkeypair -v \
+              -storetype PKCS12 \
+              -keystore my-upload-key.jks \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass dijlaplus2026 \
+              -keypass dijlaplus2026 \
+              -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
+            keytool -genkeypair -v \
+              -storetype PKCS12 \
+              -keystore my-upload-key.jks \
+              -alias release \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass dijlaplus2026 \
+              -keypass dijlaplus2026 \
+              -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
+          fi
           if [ -f gradlew ]; then
             chmod +x gradlew
           fi
@@ -103,32 +111,99 @@ jobs:
           KEY_ALIAS: upload
           KEY_PASSWORD: dijlaplus2026
         run: |
-          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          if [ ! -d "$SDK_DIR/platforms/android-36.1" ] && [ -d "$SDK_DIR/platforms/android-36" ]; then
-            sed -i 's/compileSdk { version = release(36) { minorApiLevel = 1 } }/compileSdk = 36/' app/build.gradle.kts || true
-          fi
+          # Ensure standard compileSdk=36, minSdk=23, targetSdk=34 so the compiled AndroidManifest.xml
+          # is 100% compatible with all Android phones, tablets, and Android TV boxes without minorApiLevel/preview errors
+          sed -i 's/compileSdk { version = release(36) { minorApiLevel = 1 } }/compileSdk = 36/' app/build.gradle.kts || true
+          sed -i 's/minSdk = 24/minSdk = 23/' app/build.gradle.kts || true
+          sed -i 's/targetSdk = 36/targetSdk = 34/' app/build.gradle.kts || true
+
           export KEYSTORE_PATH="${GITHUB_WORKSPACE}/my-upload-key.jks"
           export STORE_PASSWORD="dijlaplus2026"
           export KEY_ALIAS="upload"
           export KEY_PASSWORD="dijlaplus2026"
+
           gradle assembleDebug assembleRelease \
             -x lint -x lintVitalRelease -x lintVitalAnalyzeRelease \
             --no-configuration-cache \
             --stacktrace
 
-      - name: Collect Generated APK Files
+      - name: Zipalign & Sign APKs (V1 + V2 + V3 Full Signatures)
         run: |
-          mkdir -p dist-apk
-          cp app/build/outputs/apk/debug/app-debug.apk dist-apk/Dijla-Plus-v2.6.0-debug.apk
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk dist-apk/Dijla-Plus-v2.6.0-release.apk
-          fi
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          ZIPALIGN=$(find "$SDK_DIR/build-tools" -name zipalign -type f 2>/dev/null | sort -V | tail -n 1)
+          APKSIGNER=$(find "$SDK_DIR/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -n 1)
+          echo "Using zipalign: $ZIPALIGN"
+          echo "Using apksigner: $APKSIGNER"
+
+          mkdir -p dist-apk tmp-apk
+
+          # 1. Align & Sign Release APK (V1 + V2 + V3)
+          RELEASE_INPUT=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          "$ZIPALIGN" -p -f -v 4 "$RELEASE_INPUT" tmp-apk/release-aligned.apk
+          "$APKSIGNER" sign \
+            --min-sdk-version 21 \
+            --ks "${GITHUB_WORKSPACE}/my-upload-key.jks" \
+            --ks-key-alias upload \
+            --ks-pass pass:dijlaplus2026 \
+            --key-pass pass:dijlaplus2026 \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --v4-signing-enabled false \
+            --out dist-apk/Dijla-Plus-v2.6.0-Signed-Release.apk \
+            tmp-apk/release-aligned.apk
+          "$APKSIGNER" verify --verbose --min-sdk-version 21 --print-certs dist-apk/Dijla-Plus-v2.6.0-Signed-Release.apk
+
+          # 2. Align & Sign Debug APK (V1 + V2 + V3)
+          DEBUG_INPUT=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          "$ZIPALIGN" -p -f -v 4 "$DEBUG_INPUT" tmp-apk/debug-aligned.apk
+          "$APKSIGNER" sign \
+            --min-sdk-version 21 \
+            --ks "${GITHUB_WORKSPACE}/debug.keystore" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --v4-signing-enabled false \
+            --out dist-apk/Dijla-Plus-v2.6.0-Signed-Debug.apk \
+            tmp-apk/debug-aligned.apk
+          "$APKSIGNER" verify --verbose --min-sdk-version 21 --print-certs dist-apk/Dijla-Plus-v2.6.0-Signed-Debug.apk
+
           ls -lh dist-apk/
 
-      - name: Upload Ready-to-Install APKs
+      - name: Upload Signed Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Dijla-Plus-APK-Bundle
-          path: dist-apk/*.apk
+          name: Dijla-Plus-Signed-Release-APK
+          path: dist-apk/Dijla-Plus-v2.6.0-Signed-Release.apk
           if-no-files-found: error
           retention-days: 90
+
+      - name: Upload Signed Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dijla-Plus-Signed-Debug-APK
+          path: dist-apk/Dijla-Plus-v2.6.0-Signed-Debug.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish Direct Installable APK to GitHub Releases
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.6.0-latest
+          name: "دجلة بلس | Dijla Plus v2.6.0 (Direct Install APK)"
+          body: |
+            ### 📲 تحميل وتثبيت مباشر لتطبيق دجلة بلس (Dijla Plus v2.6.0)
+            للتثبيت المباشر على الهاتف أو شاشات Android TV بدون فك ضغط:
+            1. قم بتحميل ملف **`Dijla-Plus-v2.6.0-Signed-Release.apk`** مباشرة من الأسفل (قسم Assets).
+            2. الملف موقع بالكامل بتوقيع ثلاثي (**V1 + V2 + V3**) ومفحوص عبر `zipalign` و `apksigner`.
+            3. ملاحظة: إذا كان لديك إصدار قديم مثبت بتوقيع مختلف، يرجى حذف الإصدار القديم أولاً ثم تثبيت هذا الملف.
+          files: |
+            dist-apk/Dijla-Plus-v2.6.0-Signed-Release.apk
+            dist-apk/Dijla-Plus-v2.6.0-Signed-Debug.apk
+          prerelease: false
+          make_latest: true
+        continue-on-error: true

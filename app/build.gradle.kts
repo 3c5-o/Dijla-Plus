@@ -17,7 +17,7 @@ android {
     applicationId = "com.aistudio.dijlahplustv.iqstream"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
+    versionCode = 260
     versionName = "2.6.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -63,6 +63,18 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+  packaging {
+    jniLibs {
+      useLegacyPackaging = true
+    }
+    resources {
+      excludes += "/META-INF/{AL2.0,LGPL2.1}"
+      excludes += "/META-INF/INDEX.LIST"
+      excludes += "/META-INF/DEPENDENCIES"
+      excludes += "/META-INF/*.version"
+      excludes += "/META-INF/kotlin-project-structure-metadata.json"
+    }
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
