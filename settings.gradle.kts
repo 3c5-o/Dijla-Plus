@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "دجلة بلس - Dijla Plus"
+rootProject.name = "DijlaPlus"
 
 include(":app")

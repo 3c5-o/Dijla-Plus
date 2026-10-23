@@ -24,18 +24,23 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK Platform 36.1 & Build Tools
+      - name: Configure Android SDK Licenses
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_DIR/licenses"
+          printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" > "$SDK_DIR/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" > "$SDK_DIR/licenses/android-sdk-preview-license"
+          echo "ANDROID_HOME=$SDK_DIR" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> $GITHUB_ENV
 
-      - name: Prepare Environment & Keystores
+      - name: Prepare Environment & Signing Keystores
         run: |
           if [ ! -f .env ]; then
-            cp .env.example .env
+            if [ -f .env.example ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
           fi
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
             base64 -d debug.keystore.base64 > debug.keystore
@@ -51,11 +56,14 @@ jobs:
               -keypass dijlaplus2026 \
               -dname "CN=Dijla Plus, OU=IPTV, O=DijlaPlus, L=Baghdad, S=IQ, C=IQ"
           fi
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+          fi
 
-      - name: Setup Gradle
+      - name: Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: wrapper
+          gradle-version: '9.3.1'
 
       - name: Build Debug & Release APKs
         env:
@@ -65,7 +73,7 @@ jobs:
         run: |
           gradle assembleDebug assembleRelease --no-daemon --stacktrace
 
-      - name: Rename and Collect APK Files
+      - name: Collect Generated APK Files
         run: |
           mkdir -p dist-apk
           cp app/build/outputs/apk/debug/app-debug.apk dist-apk/Dijla-Plus-v2.6.0-debug.apk
