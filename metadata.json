@@ -1,0 +1,6 @@
+{
+  "name": "دجلة بلس | Dijla Plus",
+  "description": "تطبيق دجلة بلس (Dijla Plus) للبث المباشر IPTV، جدول المباريات، ومكتبة الأفلام والمسلسلات مع مشغل متعدد الشاشات ولوحة تحكم شاملة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

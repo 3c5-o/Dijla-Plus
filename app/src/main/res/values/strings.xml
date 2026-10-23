@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">دجلة بلس | Dijla Plus</string>
+    <string name="app_slogan">عالمك للرياضة والسينما بدون تقطيع</string>
+    <string name="server_status_online">متصل - سيرفرات مستقرة</string>
+    <string name="search_placeholder">ابحث عن قناة، مباراة، فيلم، أو مسلسل...</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_matches">جدول المباريات</string>
+    <string name="nav_iptv">البث المباشر</string>
+    <string name="nav_movies">الأفلام</string>
+    <string name="nav_series">المسلسلات</string>
+    <string name="nav_favorites">قائمتي</string>
+    <string name="nav_ai_studio">استوديو البوسترات AI</string>
+    <string name="watch_now">شاهد البث الآن</string>
+    <string name="add_to_favorites">إضافة للمفضلة</string>
+    <string name="remove_from_favorites">في قائمتي</string>
+    <string name="diagnostic_title">فحص تشخيص السيرفر (Server Diagnostic Mode)</string>
+    <string name="diagnostic_hint">أدخل رمز تشخيص السيرفر</string>
+    <string name="security_warning_prototype">تحذير أمني: تم تضمين مفتاح API في ملف APK الخاص بهذا النموذج الأولي. يرجى عدم مشاركة ملف APK علناً لمنع استخراج المفتاح.</string>
+</resources>

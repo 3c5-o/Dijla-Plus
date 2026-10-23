@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="640dp"
+    android:height="360dp"
+    android:viewportWidth="640"
+    android:viewportHeight="360">
+    <!-- Deep Royal Bronze & Obsidian 4K Broadcast Backdrop -->
+    <path android:pathData="M0,0h640v360h-640z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="640"
+                android:endY="360"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#0B141B" />
+                <item android:offset="0.45" android:color="#192A38" />
+                <item android:offset="1.0" android:color="#9A5B25" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Decorative Broadcast Signal Arcs -->
+    <path
+        android:fillColor="#1AF59E0B"
+        android:pathData="M520,-40 A260,260 0 1,0 520,400 A260,260 0 1,0 520,-40 Z" />
+    <path
+        android:fillColor="#26F59E0B"
+        android:pathData="M520,20 A180,180 0 1,0 520,340 A180,180 0 1,0 520,20 Z" />
+
+    <!-- Golden Baghdad Skyline & Stadium Beams Silhouette -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M0,295 L80,295 L80,265 L110,250 L140,265 L140,295 L210,295 L210,240 L250,210 L290,240 L290,295 L380,295 L380,255 L430,235 L480,255 L480,295 L640,295 L640,360 L0,360 Z" />
+
+    <!-- Central Luxury Emblem Circle -->
+    <path
+        android:fillColor="#111E27"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="4"
+        android:pathData="M510,180 m-72,0 a72,72 0 1,0 144,0 a72,72 0 1,0 -144,0" />
+
+    <!-- Numeral '1' & Play Icon inside Emblem -->
+    <path
+        android:fillColor="#E11D48"
+        android:pathData="M482,142 L500,142 L500,218 L482,218 L482,160 L470,160 L470,146 Z" />
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M514,148 L556,180 L514,212 Z" />
+</vector>
